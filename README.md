@@ -1,39 +1,47 @@
-# Solidity Game - [Game Title] Attack
+# Solidity Game - PuzzleWallet Attack
 
-_Inspired by OpenZeppelin's [Ethernaut](https://ethernaut.openzeppelin.com), [Game Title] Level_
+_Inspired by OpenZeppelin's [Ethernaut](https://ethernaut.openzeppelin.com), PuzzleWallet Level_
 
 ⚠️Do not try on mainnet!
 
 ## Task
 
-Hacker the basic token contract below.
+Nowadays, paying for DeFi operations is impossible, fact.
 
-1. You are given 20 tokens to start with and you will beat the game if you somehow manage to get your hands on any additional tokens. Preferably a very large amount of tokens.
+A group of friends discovered how to slightly decrease the cost of performing multiple transactions by batching them in one transaction, so they developed a smart contract for doing this.
+
+They needed this contract to be upgradeable in case the code contained a bug, and they also wanted to prevent people from outside the group from using it. To do so, they voted and assigned two people with special roles in the system: The admin, which has the power of updating the logic of the smart contract. The owner, which controls the whitelist of addresses allowed to use the contract. The contracts were deployed, and the group was whitelisted. Everyone cheered for their accomplishments against evil miners.
+
+Little did they know, their lunch money was at risk…
+
+  You'll need to hijack this wallet to become the admin of the proxy.
 
 _Hint:_
 
-1. What is an odometer?
+1. Understanding how `delegatecall`s work and how `msg.sender` and `msg.value` behaves when performing one.
+2. Knowing about proxy patterns and the way they handle storage variables.
 
 ## What will you learn?
 
-1. Solidity Security Consideration
-2. **Underflow** and **Overflow** in use of unsigned integers
+1. The whole thing about `delegatecall` vulnerability
+2. The storage slot order between proxy and its implementation
 
-## What is the most difficult challenge?
+## Spoiler: Solution 🤐
 
-**You won't get success to attack if the target contract has been complied in Solidity 0.8.0 or uppper** 🤔
+### Keyword
 
-> [**Solidity v0.8.0 Breaking Changes**](https://docs.soliditylang.org/en/v0.8.5/080-breaking-changes.html?highlight=underflow#silent-changes-of-the-semantics)
->
-> Arithmetic operations revert on **underflow** and **overflow**. You can use `unchecked { ... }` to use the previous wrapping behaviour.
->
-> Checks for overflow are very common, so we made them the default to increase readability of code, even if it comes at a slight increase of gas costs.
+**`delegatecall`**
 
-I had tried to do everything in Solidity 0.8.5 at first time, but it didn't work, as it reverted transactions everytime it met underflow.
+`delegatecall` basically says that I'm a contract and I'm allowing (delegating) you to do whatever you want to my storage. `delegatecall` is a security risk for the sending contract which needs to trust that the receiving contract will treat the storage well. i.e. If Alice invokes Bob who does `delegatecall` to Charlie, the `msg.sender` in the `delegatecall` is Alice. So, `delegatecall` just uses the code of the target contract, but the storage of the current contract.
 
-Finally, I found that Solidity included those checks by defaults while using sliencely more gas.
+**Proxy Pattern**
 
-So, don't you need to use [`SafeMath`](https://github.com/OpenZeppelin/openzeppelin-contracts/blob/master/contracts/utils/math/SafeMath.sol)?
+One of the biggest advantages of Ethereum is that every transaction of moving funds, every contract deployed, and every transaction made to a contract is immutable on a public ledger we call the blockchain. There is no way to hide or amend any transactions ever made. The huge benefit is that any node on the Ethereum network can verify the validity and state of every transaction making Ethereum a very robust decentralized system. But the biggest disadvantage is that you cannot change the source code of your smart contract after it’s been deployed. Developers working on centralized applications (like Facebook, or Airbnb) are used to frequent updates in order to fix bugs or introduce new features. This is impossible to do on Ethereum with traditional patterns.
+
+So, in order to build an upgradable contract, we can consider a proxy contract that interacts user and pass through it to our logic contract. Every proxy contract use `delegatecall` to execute the logic in logic contract.
+
+### Step by step
+
 
 ## Source Code
 
@@ -42,38 +50,100 @@ So, don't you need to use [`SafeMath`](https://github.com/OpenZeppelin/openzeppe
 ```solidity
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.6.0;
+pragma experimental ABIEncoderV2;
 
-contract Token {
-  mapping(address => uint256) balances;
-  uint256 public totalSupply;
+import "@openzeppelin/contracts/math/SafeMath.sol";
+import "@openzeppelin/contracts/proxy/UpgradeableProxy.sol";
 
-  constructor(uint256 _initialSupply) public {
-    balances[msg.sender] = totalSupply = _initialSupply;
-  }
+contract PuzzleProxy is UpgradeableProxy {
+    address public pendingAdmin;
+    address public admin;
 
-  function transfer(address _to, uint256 _value) public returns (bool) {
-    require(balances[msg.sender] - _value >= 0);
-    balances[msg.sender] -= _value;
-    balances[_to] += _value;
-    return true;
-  }
+    constructor(address _admin, address _implementation, bytes memory _initData) UpgradeableProxy(_implementation, _initData) public {
+        admin = _admin;
+    }
 
-  function balanceOf(address _owner) public view returns (uint256 balance) {
-    return balances[_owner];
-  }
+    modifier onlyAdmin {
+      require(msg.sender == admin, "Caller is not the admin");
+      _;
+    }
+
+    function proposeNewAdmin(address _newAdmin) external {
+        pendingAdmin = _newAdmin;
+    }
+
+    function approveNewAdmin(address _expectedAdmin) external onlyAdmin {
+        require(pendingAdmin == _expectedAdmin, "Expected new admin by the current admin is not the pending admin");
+        admin = pendingAdmin;
+    }
+
+    function upgradeTo(address _newImplementation) external onlyAdmin {
+        _upgradeTo(_newImplementation);
+    }
+}
+
+contract PuzzleWallet {
+    using SafeMath for uint256;
+    address public owner;
+    uint256 public maxBalance;
+    mapping(address => bool) public whitelisted;
+    mapping(address => uint256) public balances;
+
+    function init(uint256 _maxBalance) public {
+        require(maxBalance == 0, "Already initialized");
+        maxBalance = _maxBalance;
+        owner = msg.sender;
+    }
+
+    modifier onlyWhitelisted {
+        require(whitelisted[msg.sender], "Not whitelisted");
+        _;
+    }
+
+    function setMaxBalance(uint256 _maxBalance) external onlyWhitelisted {
+      require(address(this).balance == 0, "Contract balance is not 0");
+      maxBalance = _maxBalance;
+    }
+
+    function addToWhitelist(address addr) external {
+        require(msg.sender == owner, "Not the owner");
+        whitelisted[addr] = true;
+    }
+
+    function deposit() external payable onlyWhitelisted {
+      require(address(this).balance <= maxBalance, "Max balance reached");
+      balances[msg.sender] = balances[msg.sender].add(msg.value);
+    }
+
+    function execute(address to, uint256 value, bytes calldata data) external payable onlyWhitelisted {
+        require(balances[msg.sender] >= value, "Insufficient balance");
+        balances[msg.sender] = balances[msg.sender].sub(value);
+        (bool success, ) = to.call{ value: value }(data);
+        require(success, "Execution failed");
+    }
+
+    function multicall(bytes[] calldata data) external payable onlyWhitelisted {
+        bool depositCalled = false;
+        for (uint256 i = 0; i < data.length; i++) {
+            bytes memory _data = data[i];
+            bytes4 selector;
+            assembly {
+                selector := mload(add(_data, 32))
+            }
+            if (selector == this.deposit.selector) {
+                require(!depositCalled, "Deposit can only be called once");
+                // Protect against reusing msg.value
+                depositCalled = true;
+            }
+            (bool success, ) = address(this).delegatecall(data[i]);
+            require(success, "Error while delegating call");
+        }
+    }
 }
 
 ```
 
 ## Configuration
-
-### Install Truffle cli
-
-_Skip if you have already installed._
-
-```
-npm install -g truffle
-```
 
 ### Install Dependencies
 
@@ -86,27 +156,22 @@ yarn install
 ### Run Tests
 
 ```
-truffle develop
-test
+yarn test
 ```
 
-You should take ownership of the target contract successfully.
+You should see the result like following:
 
 ```
-truffle(develop)> test
-Using network 'develop'.
+  Hacker
+    √ initialize a PuzzleWallet and setup the game (186ms)
+    Attack
+      √ propose new admin for proxy, it should update owner for wallet (44ms)
+      √ add hacker in whitelist
+      √ manipulate hacker balance to be double (58ms)
+      √ drain all ether out from the wallet
+      √ set maxBalance again, it should finally change the admin of the proxy
 
 
-Compiling your contracts...
-===========================
-> Everything is up to date, there is nothing to compile.
-
-
-
-  Contract: Hacker
-    √ should steal countless of tokens (377ms)
-
-
-  1 passing (440ms)
+  6 passing (641ms)
 
 ```

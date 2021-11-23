@@ -4,7 +4,7 @@ pragma solidity >=0.8.5 <0.9.0;
 contract Hacker {
   address public hacker;
 
-  modifier onlyHacker {
+  modifier onlyHacker() {
     require(msg.sender == hacker, "caller is not the hacker");
     _;
   }
@@ -13,5 +13,9 @@ contract Hacker {
     hacker = payable(msg.sender);
   }
 
+  /**
+   * @dev This time, we don't use contract to hijack the target.
+   * Instead, look at test file.
+   */
   function attack(address _target) public onlyHacker {}
 }

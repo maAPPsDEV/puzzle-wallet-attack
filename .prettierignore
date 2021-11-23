@@ -5,3 +5,4 @@ gasReporterOutput.json
 dist
 typechain
 deployments
+PuzzleWallet.sol
