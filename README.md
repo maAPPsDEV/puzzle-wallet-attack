@@ -40,8 +40,31 @@ One of the biggest advantages of Ethereum is that every transaction of moving fu
 
 So, in order to build an upgradable contract, we can consider a proxy contract that interacts user and pass through it to our logic contract. Every proxy contract use `delegatecall` to execute the logic in logic contract.
 
+### Description
+In an easy word, _Proxy_ and _Logic_ contracts share storage via `delegatecall`, that means `pendingAdmin` is `owner` as well as `admin` is `maxBalance`.
+
+| Slot | Variable           |
+|------|--------------------|
+| 0    | pendingAdmin/owner |
+| 1    | admin/maxBalance   |
+| 2    | whitelisted        |
+| 3    | balances           |
+
+In this sense, you can guess that `admin` can be set to a new value via `maxBalance`.
+In order to set `maxBalance`, you have to be whitelisted as well as the wallet contract's ether balance has to be 0.
+In order to add someone in whiltelist, you have to be `owner`.
+In order to be `owner`, you can set `pendingAdmin` as yourself through `proposeNewAdmin` in `PuzzleProxy`.
+Once you are whiltelisted, you can call `execute` and `multicall` strategically to steal ethers from the wallet contract.
+
 ### Step by step
 
+1. Propose yourself as a new admin
+2. Add yourself in whitelist
+3. Manipulate your balance
+4. Drain out ETH
+   - `multicall([deposit, multicall([deposit])])`
+   - `execute(yourself)`
+5. Set `maxBalance`
 
 ## Source Code
 
