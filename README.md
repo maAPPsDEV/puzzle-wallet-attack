@@ -26,47 +26,7 @@ _Hint:_
 1. The whole thing about `delegatecall` vulnerability
 2. The storage slot order between proxy and its implementation
 
-## Spoiler: Solution 🤐
-
-### Keyword
-
-**`delegatecall`**
-
-`delegatecall` basically says that I'm a contract and I'm allowing (delegating) you to do whatever you want to my storage. `delegatecall` is a security risk for the sending contract which needs to trust that the receiving contract will treat the storage well. i.e. If Alice invokes Bob who does `delegatecall` to Charlie, the `msg.sender` in the `delegatecall` is Alice. So, `delegatecall` just uses the code of the target contract, but the storage of the current contract.
-
-**Proxy Pattern**
-
-One of the biggest advantages of Ethereum is that every transaction of moving funds, every contract deployed, and every transaction made to a contract is immutable on a public ledger we call the blockchain. There is no way to hide or amend any transactions ever made. The huge benefit is that any node on the Ethereum network can verify the validity and state of every transaction making Ethereum a very robust decentralized system. But the biggest disadvantage is that you cannot change the source code of your smart contract after it’s been deployed. Developers working on centralized applications (like Facebook, or Airbnb) are used to frequent updates in order to fix bugs or introduce new features. This is impossible to do on Ethereum with traditional patterns.
-
-So, in order to build an upgradable contract, we can consider a proxy contract that interacts user and pass through it to our logic contract. Every proxy contract use `delegatecall` to execute the logic in logic contract.
-
-### Description
-In an easy word, _Proxy_ and _Logic_ contracts share storage via `delegatecall`, that means `pendingAdmin` is `owner` as well as `admin` is `maxBalance`.
-
-| Slot | Variable           |
-|------|--------------------|
-| 0    | pendingAdmin/owner |
-| 1    | admin/maxBalance   |
-| 2    | whitelisted        |
-| 3    | balances           |
-
-In this sense, you can guess that `admin` can be set to a new value via `maxBalance`.
-In order to set `maxBalance`, you have to be whitelisted as well as the wallet contract's ether balance has to be 0.
-In order to add someone in whiltelist, you have to be `owner`.
-In order to be `owner`, you can set `pendingAdmin` as yourself through `proposeNewAdmin` in `PuzzleProxy`.
-Once you are whiltelisted, you can call `execute` and `multicall` strategically to steal ethers from the wallet contract.
-
-### Step by step
-
-1. Propose yourself as a new admin
-2. Add yourself in whitelist
-3. Manipulate your balance
-4. Drain out ETH
-   - `multicall([deposit, multicall([deposit])])`
-   - `execute(yourself)`
-5. Set `maxBalance`
-
-## Source Code
+## Target Contract
 
 ⚠️This contract contains a bug or risk. Do not use on mainnet!
 
@@ -165,6 +125,46 @@ contract PuzzleWallet {
 }
 
 ```
+
+## Spoiler: Solution 🤐
+
+### Keyword
+
+**`delegatecall`**
+
+`delegatecall` basically says that I'm a contract and I'm allowing (delegating) you to do whatever you want to my storage. `delegatecall` is a security risk for the sending contract which needs to trust that the receiving contract will treat the storage well. i.e. If Alice invokes Bob who does `delegatecall` to Charlie, the `msg.sender` in the `delegatecall` is Alice. So, `delegatecall` just uses the code of the target contract, but the storage of the current contract.
+
+**Proxy Pattern**
+
+One of the biggest advantages of Ethereum is that every transaction of moving funds, every contract deployed, and every transaction made to a contract is immutable on a public ledger we call the blockchain. There is no way to hide or amend any transactions ever made. The huge benefit is that any node on the Ethereum network can verify the validity and state of every transaction making Ethereum a very robust decentralized system. But the biggest disadvantage is that you cannot change the source code of your smart contract after it’s been deployed. Developers working on centralized applications (like Facebook, or Airbnb) are used to frequent updates in order to fix bugs or introduce new features. This is impossible to do on Ethereum with traditional patterns.
+
+So, in order to build an upgradable contract, we can consider a proxy contract that interacts user and pass through it to our logic contract. Every proxy contract use `delegatecall` to execute the logic in logic contract.
+
+### Description
+In an easy word, _Proxy_ and _Logic_ contracts share storage via `delegatecall`, that means `pendingAdmin` is `owner` as well as `admin` is `maxBalance`.
+
+| Slot | Variable           |
+|------|--------------------|
+| 0    | pendingAdmin/owner |
+| 1    | admin/maxBalance   |
+| 2    | whitelisted        |
+| 3    | balances           |
+
+In this sense, you can guess that `admin` can be set to a new value via `maxBalance`.
+In order to set `maxBalance`, you have to be whitelisted as well as the wallet contract's ether balance has to be 0.
+In order to add someone in whiltelist, you have to be `owner`.
+In order to be `owner`, you can set `pendingAdmin` as yourself through `proposeNewAdmin` in `PuzzleProxy`.
+Once you are whiltelisted, you can call `execute` and `multicall` strategically to steal ethers from the wallet contract.
+
+### Step by step
+
+1. Propose yourself as a new admin
+2. Add yourself in whitelist
+3. Manipulate your balance
+4. Drain out ETH
+   - `multicall([deposit, multicall([deposit])])`
+   - `execute(yourself)`
+5. Set `maxBalance`
 
 ## Configuration
 
